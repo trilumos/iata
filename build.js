@@ -383,42 +383,188 @@ function generateSearchIndex(airports) {
   console.log(`Search index: ${index.length} entries, ${Math.round(json.length / 1024)}KB`);
 }
 
-// ---- Sitemap ----
-function generateSitemap(airports, byCountry, byCity) {
-  const now = new Date().toISOString().split('T')[0];
-  const urls = [];
-
-  urls.push(`<url><loc>${BASE_URL}/</loc><changefreq>monthly</changefreq><priority>1.0</priority></url>`);
-  urls.push(`<url><loc>${BASE_URL}/iata-to-icao/</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>`);
-  urls.push(`<url><loc>${BASE_URL}/icao-to-iata/</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>`);
-
-  for (const a of airports) {
-    urls.push(`<url><loc>${BASE_URL}/airports/${a.slug}</loc><lastmod>${now}</lastmod><changefreq>yearly</changefreq><priority>0.6</priority></url>`);
-  }
-  for (const slug of Object.keys(byCountry)) {
-    urls.push(`<url><loc>${BASE_URL}/country/${slug}</loc><lastmod>${now}</lastmod><changefreq>yearly</changefreq><priority>0.7</priority></url>`);
-  }
-  for (const slug of Object.keys(byCity)) {
-    urls.push(`<url><loc>${BASE_URL}/city/${slug}</loc><lastmod>${now}</lastmod><changefreq>yearly</changefreq><priority>0.6</priority></url>`);
-  }
-
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls.join('\n')}
-</urlset>`;
-
-  fs.writeFileSync(path.join(DIST, 'sitemap.xml'), xml);
-  console.log(`Sitemap: ${urls.length} URLs`);
-}
+// generateSitemap replaced by generateSitemapIndex above
 
 // ---- robots.txt ----
 function generateRobotsTxt() {
   fs.writeFileSync(path.join(DIST, 'robots.txt'),
-`User-agent: *
+`# robots.txt — iatacode.pages.dev
+# Allow all compliant crawlers full access
+
+User-agent: *
 Allow: /
+Disallow: /cdn-cgi/
+Crawl-delay: 1
+
+# Google
+User-agent: Googlebot
+Allow: /
+Disallow: /cdn-cgi/
+
+User-agent: Googlebot-Image
+Allow: /
+
+# Bing
+User-agent: Bingbot
+Allow: /
+Crawl-delay: 1
+
+# Common SEO crawlers
+User-agent: AhrefsBot
+Allow: /
+
+User-agent: SemrushBot
+Allow: /
+
+User-agent: MJ12bot
+Allow: /
+
+# AI crawlers (allow for visibility)
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: YouBot
+Allow: /
+
+# Sitemaps
 Sitemap: ${BASE_URL}/sitemap.xml
 `);
 }
+
+// ---- llms.txt (AI crawler context file) ----
+
+// ---- llms.txt (AI crawler context file) ----
+function generateLlmsTxt(airports, byCountry) {
+  const topAirports = ['JFK','LHR','CDG','DXB','LAX','SIN','HKG','SYD','NRT','FRA',
+                       'ORD','AMS','ICN','PEK','DFW','MIA','BKK','DEL','MUC','ZRH'];
+  const airportMap = Object.fromEntries(airports.map(a => [a.iata, a]));
+  const topList = topAirports
+    .filter(c => airportMap[c])
+    .map(c => {
+      const a = airportMap[c];
+      return '- [' + a.iata + '] ' + a.name + ', ' + a.city + ', ' + a.country;
+    })
+    .join('\n');
+
+  const countryCount = Object.keys(byCountry).length;
+  const total = airports.length.toLocaleString();
+
+  const content = [
+    '# IATA Airport Code Lookup — llms.txt',
+    '',
+    '## What this site does',
+    'This site is a comprehensive, freely accessible database of IATA and ICAO airport codes for ' + total + ' airports across ' + countryCount + ' countries and territories.',
+    '',
+    '## Data source',
+    'Data is sourced from OurAirports (https://ourairports.com/data/), a community-maintained open dataset updated regularly. It includes new airports like Rajkot International Airport (HSR / Hirasar) in India.',
+    '',
+    '## URL structure',
+    '- Airport detail page: /airports/[iata-lowercase]  e.g. /airports/jfk',
+    '- Country index:       /country/[slug]             e.g. /country/india',
+    '- City index:          /city/[slug]                e.g. /city/mumbai-india',
+    '- IATA to ICAO tool:   /iata-to-icao/',
+    '- ICAO to IATA tool:   /icao-to-iata/',
+    '',
+    '## Key facts',
+    '- Total airports: ' + total,
+    '- Countries & territories: ' + countryCount,
+    '- Includes large, medium, and small airports with valid IATA codes',
+    '- Data refreshed on every Cloudflare Pages build',
+    '',
+    '## Popular airports (sample)',
+    topList,
+    '',
+    '## Sitemap',
+    BASE_URL + '/sitemap.xml — sitemap index linking to all airport, country, and city pages.',
+    '',
+    '## Contact',
+    'Data corrections should be submitted to OurAirports at https://ourairports.com',
+  ].join('\n');
+
+  fs.writeFileSync(path.join(DIST, 'llms.txt'), content);
+}
+
+// ---- humans.txt ----
+function generateHumansTxt() {
+  const today = new Date().toISOString().split('T')[0];
+  const content = [
+    '/* TEAM */',
+    '  Site: IATA Airport Code Lookup',
+    '  Built with: Node.js, Vanilla HTML/CSS/JS',
+    '  Deployed on: Cloudflare Pages',
+    '',
+    '/* THANKS */',
+    '  Data: OurAirports (https://ourairports.com)',
+    '  Fonts: Google Fonts — Space Mono, DM Sans',
+    '',
+    '/* SITE */',
+    '  Last update: ' + today,
+    '  Language: English',
+    '  Standards: HTML5, CSS3',
+    '  Components: Vanilla JS search widget, JSON-LD structured data',
+  ].join('\n');
+  fs.writeFileSync(path.join(DIST, 'humans.txt'), content);
+}
+
+// ---- Google site verification ----
+function generateGoogleVerification() {
+  fs.writeFileSync(
+    path.join(DIST, 'google717b108d8b12989c.html'),
+    'google-site-verification: google717b108d8b12989c.html'
+  );
+}
+
+// ---- Sitemap index (two sitemaps: pages + airports) ----
+function generateSitemapIndex(airports, byCountry, byCity) {
+  const now = new Date().toISOString().split('T')[0];
+
+  // Sitemap 1: static + country + city pages
+  const staticUrls = [
+    '<url><loc>' + BASE_URL + '/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>',
+    '<url><loc>' + BASE_URL + '/iata-to-icao/</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>',
+    '<url><loc>' + BASE_URL + '/icao-to-iata/</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>',
+  ];
+  for (const slug of Object.keys(byCountry)) {
+    staticUrls.push('<url><loc>' + BASE_URL + '/country/' + slug + '</loc><lastmod>' + now + '</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>');
+  }
+  for (const slug of Object.keys(byCity)) {
+    staticUrls.push('<url><loc>' + BASE_URL + '/city/' + slug + '</loc><lastmod>' + now + '</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>');
+  }
+  const sitemap1 = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + staticUrls.join('\n') + '\n</urlset>';
+  fs.writeFileSync(path.join(DIST, 'sitemap-pages.xml'), sitemap1);
+
+  // Sitemap 2: all airport pages
+  const airportUrls = airports.map(a =>
+    '<url><loc>' + BASE_URL + '/airports/' + a.slug + '</loc><lastmod>' + now + '</lastmod><changefreq>yearly</changefreq><priority>0.6</priority></url>'
+  );
+  const sitemap2 = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + airportUrls.join('\n') + '\n</urlset>';
+  fs.writeFileSync(path.join(DIST, 'sitemap-airports.xml'), sitemap2);
+
+  // Sitemap index
+  const index = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    '  <sitemap><loc>' + BASE_URL + '/sitemap-pages.xml</loc><lastmod>' + now + '</lastmod></sitemap>',
+    '  <sitemap><loc>' + BASE_URL + '/sitemap-airports.xml</loc><lastmod>' + now + '</lastmod></sitemap>',
+    '</sitemapindex>',
+  ].join('\n');
+  fs.writeFileSync(path.join(DIST, 'sitemap.xml'), index);
+
+  console.log('Sitemaps: ' + staticUrls.length + ' pages + ' + airportUrls.length + ' airports');
+}
+
 
 // ---- _redirects ----
 function generateRedirects() {
@@ -528,8 +674,11 @@ async function main() {
   generateConverterPage('icao-to-iata', airportList);
   generateHomepage(airportList, byCountry, byCity);
   generateSearchIndex(airportList);
-  generateSitemap(airportList, byCountry, byCity);
+  generateSitemapIndex(airportList, byCountry, byCity);
   generateRobotsTxt();
+  generateLlmsTxt(airportList, byCountry);
+  generateHumansTxt();
+  generateGoogleVerification();
   generateRedirects();
   generateHeaders();
   generate404();
