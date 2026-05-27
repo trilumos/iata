@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IATA Airport Code Lookup — Search 9,000+ Airport Codes</title>
+  <meta name="description" content="Look up IATA and ICAO airport codes instantly. Search by airport name, city, or code. Complete database of 9,000+ airports worldwide.">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://iatacode.pages.dev/">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "IATA Airport Code Lookup",
+    "url": "https://iatacode.pages.dev/",
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": "https://iatacode.pages.dev/airports/{search_term_string}",
+      "query-input": "required name=search_term_string"
+    }
+  }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --navy: #0a0e1a; --navy2: #111827; --blue: #2563eb; --blue-light: #3b82f6;
+      --cyan: #06b6d4; --border: #1e2d47; --card: #0f1829; --text: #e2e8f0; --text-dim: #94a3b8;
+      --mono: 'Space Mono', monospace; --sans: 'DM Sans', sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--navy); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+    a { color: var(--blue-light); text-decoration: none; }
+    a:hover { color: var(--cyan); }
+    .site-header { background: var(--navy2); border-bottom: 1px solid var(--border); padding: 0 1.5rem; }
+    .header-inner { max-width: 900px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .logo { font-family: var(--mono); font-weight: 700; font-size: 1rem; color: var(--text); }
+    .logo span { color: var(--cyan); }
+    .nav { display: flex; gap: 1.5rem; font-size: 0.82rem; }
+    .nav a { color: var(--text-dim); transition: color 0.15s; }
+    .nav a:hover { color: var(--cyan); }
+
+    /* Hero search */
+    .hero { max-width: 900px; margin: 0 auto; padding: 4rem 1.5rem 3rem; text-align: center; }
+    .hero-eyebrow { font-family: var(--mono); font-size: 0.78rem; color: var(--cyan); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 1rem; }
+    .hero h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; color: #fff; line-height: 1.15; margin-bottom: 0.75rem; }
+    .hero-sub { color: var(--text-dim); font-size: 1rem; margin-bottom: 2.5rem; }
+    .search-wrap { position: relative; max-width: 540px; margin: 0 auto 1.5rem; }
+    .search-input { width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.25rem; font-size: 1.05rem; color: var(--text); font-family: var(--sans); outline: none; transition: border-color 0.15s; }
+    .search-input:focus { border-color: var(--cyan); }
+    .search-input::placeholder { color: var(--text-dim); }
+    .search-results { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--navy2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; z-index: 10; box-shadow: 0 16px 48px rgba(0,0,0,0.5); text-align: left; }
+    .stat-pills { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .stat-pill { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 0.35rem 0.85rem; font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim); }
+    .stat-pill span { color: var(--cyan); }
+
+    main { max-width: 900px; margin: 0 auto; padding: 0 1.5rem 4rem; }
+    .ad-slot { min-height: 90px; border: 1px dashed var(--border); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 0.75rem; font-family: var(--mono); margin: 1.5rem 0; }
+    .ad-slot.rect { min-height: 250px; }
+
+    h2 { font-size: 0.9rem; font-family: var(--mono); font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+
+    /* Popular grid */
+    .popular-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.6rem; margin-bottom: 2.5rem; }
+    .pop-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem 0.5rem; text-align: center; display: block; color: var(--text); transition: border-color 0.15s, transform 0.1s; }
+    .pop-card:hover { border-color: var(--cyan); transform: translateY(-2px); color: var(--text); }
+    .pop-iata { font-family: var(--mono); font-weight: 700; color: var(--cyan); font-size: 1.1rem; }
+    .pop-city { font-size: 0.68rem; color: var(--text-dim); margin-top: 0.2rem; }
+
+    /* Country list */
+    .country-list { columns: 3; column-gap: 2rem; font-size: 0.86rem; }
+    .country-list a { display: block; padding: 0.2rem 0; color: var(--text-dim); transition: color 0.12s; break-inside: avoid; }
+    .country-list a:hover { color: var(--cyan); }
+
+    /* Tools */
+    .tool-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+    .tool-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; display: block; color: var(--text); transition: border-color 0.15s; }
+    .tool-card:hover { border-color: var(--cyan); color: var(--text); }
+    .tool-title { font-weight: 700; font-size: 1rem; margin-bottom: 0.4rem; }
+    .tool-desc { font-size: 0.84rem; color: var(--text-dim); }
+
+    section { margin-bottom: 2.5rem; }
+    footer { border-top: 1px solid var(--border); padding: 1.5rem; text-align: center; font-size: 0.78rem; color: var(--text-dim); }
+    @media (max-width: 640px) {
+      .popular-grid { grid-template-columns: repeat(4, 1fr); }
+      .country-list { columns: 2; }
+      .tool-cards { grid-template-columns: 1fr; }
+      .nav { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/" class="logo">✈ IATA<span>Codes</span></a>
+      <nav class="nav">
+        <a href="/">Search</a>
+        <a href="/iata-to-icao/">IATA→ICAO</a>
+        <a href="/icao-to-iata/">ICAO→IATA</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="hero">
+    <div class="hero-eyebrow">Airport Code Database</div>
+    <h1>IATA Airport<br>Code Lookup</h1>
+    <div class="hero-sub">Search by airport name, city, or IATA/ICAO code</div>
+    <div class="search-wrap">
+      <input id="search-input" type="text" class="search-input"
+        placeholder="JFK, Heathrow, New York..."
+        autocomplete="off" spellcheck="false" autofocus>
+      <div id="search-results" class="search-results" hidden></div>
+    </div>
+    <div class="stat-pills">
+      <div class="stat-pill"><span>{{AIRPORT_COUNT}}</span> airports</div>
+      <div class="stat-pill"><span>{{COUNTRY_COUNT}}</span> countries</div>
+      <div class="stat-pill"><span>{{CITY_COUNT}}</span> cities</div>
+    </div>
+  </div>
+
+  <main>
+    <div class="ad-slot"><!-- ADSENSE_TOP_BANNER --></div>
+
+    <section>
+      <h2>Popular Airports</h2>
+      <div class="popular-grid">
+        {{POPULAR_CARDS}}
+      </div>
+    </section>
+
+    <div class="ad-slot rect"><!-- ADSENSE_MID_RECT --></div>
+
+    <section>
+      <h2>Tools</h2>
+      <div class="tool-cards">
+        <a href="/iata-to-icao/" class="tool-card">
+          <div class="tool-title">IATA → ICAO Converter</div>
+          <div class="tool-desc">Convert any IATA airport code to its ICAO equivalent instantly.</div>
+        </a>
+        <a href="/icao-to-iata/" class="tool-card">
+          <div class="tool-title">ICAO → IATA Converter</div>
+          <div class="tool-desc">Convert any ICAO airport code to its IATA equivalent instantly.</div>
+        </a>
+      </div>
+    </section>
+
+    <section>
+      <h2>Browse by Country</h2>
+      <div class="country-list">
+        {{COUNTRY_LINKS}}
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Data from <a href="https://openflights.org/data">OpenFlights</a> ·
+    <a href="/iata-to-icao/">IATA to ICAO</a> ·
+    <a href="/icao-to-iata/">ICAO to IATA</a>
+  </footer>
+
+  <script src="/widget.js"></script>
+  <script>AirportSearch.init('search-input', 'search-results', 'any');</script>
+</body>
+</html>
