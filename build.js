@@ -1,4 +1,5 @@
 // build.js — Master build script for IATA Airport Codes site
+// Data source: OurAirports (updated regularly, ~9000 airports with IATA codes)
 // Run: node build.js
 
 const https = require('https');
@@ -9,23 +10,26 @@ const { parse } = require('csv-parse/sync');
 // ---- Config ----
 const BASE_URL = 'https://iatacode.pages.dev';
 const DIST = './dist';
-const DATA_URL = 'https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat';
-const LOCAL_PATH = './data/airports.csv';
+
+const AIRPORTS_URL = 'https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airports.csv';
+const COUNTRIES_URL = 'https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/countries.csv';
+const AIRPORTS_PATH = './data/airports.csv';
+const COUNTRIES_PATH = './data/countries.csv';
 
 const POPULAR_IATA = ['JFK','LHR','CDG','DXB','LAX','SIN','HKG','SYD','NRT','FRA',
-                       'ORD','AMS','ICN','PEK','DFW','MIA','BKK','DEL','MUC','ZRH'];
+                      'ORD','AMS','ICN','PEK','DFW','MIA','BKK','DEL','MUC','ZRH'];
 
-// ---- Data fetch ----
-async function fetchData() {
-  if (fs.existsSync(LOCAL_PATH)) {
-    console.log('Using cached airports.csv');
+// ---- Fetch helpers ----
+async function fetchFile(url, localPath) {
+  if (fs.existsSync(localPath)) {
+    console.log(`Using cached ${path.basename(localPath)}`);
     return;
   }
   fs.mkdirSync('./data', { recursive: true });
-  console.log('Fetching airports.dat...');
+  console.log(`Fetching ${path.basename(localPath)}...`);
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(LOCAL_PATH);
-    https.get(DATA_URL, res => {
+    const file = fs.createWriteStream(localPath);
+    https.get(url, res => {
       res.pipe(file);
       file.on('finish', () => { file.close(); resolve(); });
     }).on('error', reject);
@@ -42,43 +46,76 @@ function slugify(str) {
     .trim();
 }
 
-// ---- Load & parse airports ----
-function loadAirports() {
-  const raw = fs.readFileSync(LOCAL_PATH, 'utf8');
-  const records = parse(raw, { relax_quotes: true, skip_empty_lines: true });
+// ---- Load countries lookup (iso_code -> full name) ----
+function loadCountries() {
+  const raw = fs.readFileSync(COUNTRIES_PATH, 'utf8');
+  const records = parse(raw, { columns: true, skip_empty_lines: true });
+  const map = {};
+  for (const r of records) {
+    map[r.code.trim()] = r.name.trim();
+  }
+  return map;
+}
 
-  const fields = ['id','name','city','country','iata','icao','lat','lon',
-                  'altitude','tz_offset','dst','tz_name','type','source'];
+// ---- Load & parse airports ----
+function loadAirports(countryMap) {
+  const raw = fs.readFileSync(AIRPORTS_PATH, 'utf8');
+  const records = parse(raw, { columns: true, skip_empty_lines: true, relax_quotes: true });
 
   return records
-    .map(row => Object.fromEntries(fields.map((f, i) => [f, row[i] ?? ''])))
-    .filter(a => a.iata && a.iata !== '\\N' && a.iata.length === 3)
-    .filter(a => a.type === 'airport')
-    .filter(a => /^[A-Z]{3}$/.test(a.iata))
-    .map(a => ({
-      ...a,
-      lat: parseFloat(a.lat) || 0,
-      lon: parseFloat(a.lon) || 0,
-      altitude: parseInt(a.altitude) || 0,
-      iata: a.iata.trim().toUpperCase(),
-      icao: (a.icao === '\\N' || !a.icao) ? '' : a.icao.trim().toUpperCase(),
-      slug: a.iata.trim().toLowerCase(),
-      countrySlug: slugify(a.country),
-      citySlug: slugify((a.city || 'unknown') + '-' + a.country),
-      tz_name: a.tz_name === '\\N' ? '' : a.tz_name,
-    }))
+    // Must have a valid 3-letter IATA code
+    .filter(r => r.iata_code && /^[A-Z]{3}$/.test(r.iata_code.trim()))
+    // Only real airports (exclude heliports, seaplane bases, closed)
+    .filter(r => ['large_airport','medium_airport','small_airport'].includes(r.type))
+    // Must not be closed
+    .filter(r => r.type !== 'closed')
+    .map(r => {
+      const iata = r.iata_code.trim().toUpperCase();
+      const icao = (r.icao_code || '').trim().toUpperCase();
+      const country = countryMap[r.iso_country.trim()] || r.iso_country.trim();
+      const city = (r.municipality || '').trim();
+      const lat = parseFloat(r.latitude_deg) || 0;
+      const lon = parseFloat(r.longitude_deg) || 0;
+
+      return {
+        iata,
+        icao: icao || '',
+        name: r.name.trim(),
+        city,
+        country,
+        iso_country: r.iso_country.trim(),
+        iso_region: r.iso_region.trim(),
+        type: r.type,
+        scheduled: r.scheduled_service === 'yes',
+        lat,
+        lon,
+        altitude: parseInt(r.elevation_ft) || 0,
+        // OurAirports doesn't have tz/dst — derive from region or leave blank
+        tz_name: '',
+        tz_offset: '',
+        dst: '',
+        slug: iata.toLowerCase(),
+        countrySlug: slugify(country),
+        citySlug: slugify((city || 'unknown') + '-' + country),
+      };
+    })
+    // Remove null island
     .filter(a => Math.abs(a.lat) > 0.01 || Math.abs(a.lon) > 0.01);
 }
 
-// ---- Deduplication ----
+// ---- Deduplication (keep scheduled service over non-scheduled; else keep larger type) ----
+const TYPE_RANK = { large_airport: 3, medium_airport: 2, small_airport: 1 };
+
 function deduplicateByIATA(airports) {
   const map = {};
   for (const a of airports) {
     if (!map[a.iata]) {
       map[a.iata] = a;
     } else {
-      if (!map[a.iata].icao && a.icao) {
-        console.warn(`Duplicate IATA: ${a.iata} — keeping ${a.name} (has ICAO) over ${map[a.iata].name}`);
+      const existing = map[a.iata];
+      const betterType = (TYPE_RANK[a.type] || 0) > (TYPE_RANK[existing.type] || 0);
+      const betterScheduled = a.scheduled && !existing.scheduled;
+      if (betterScheduled || (!existing.scheduled && betterType)) {
         map[a.iata] = a;
       }
     }
@@ -124,8 +161,8 @@ function formatTzOffset(offset) {
 }
 
 function dstDescription(dst) {
-  const map = { E: 'European', A: 'US/Canadian', S: 'South American',
-                O: 'Australian', Z: 'New Zealand', N: 'no', U: 'unknown' };
+  const map = { E:'European', A:'US/Canadian', S:'South American',
+                O:'Australian', Z:'New Zealand', N:'no', U:'unknown' };
   return map[dst] || 'standard';
 }
 
@@ -158,8 +195,6 @@ function renderNearbyCards(nearby) {
 
 function generateAirportPage(airport) {
   const altM = Math.round(airport.altitude * 0.3048);
-  const tzOffset = formatTzOffset(airport.tz_offset);
-  const tzName = airport.tz_name || 'Unknown';
   const icaoOrNa = airport.icao || 'N/A';
   const icaoSentence = airport.icao
     ? `, and its ICAO code is <strong>${escapeHtml(airport.icao)}</strong>`
@@ -173,7 +208,7 @@ function generateAirportPage(airport) {
     NAME_JSON: escapeJson(airport.name),
     IATA: airport.iata,
     IATA_LOWER: airport.slug,
-    ICAO: airport.icao || 'N/A',
+    ICAO: icaoOrNa,
     ICAO_OR_NA: icaoOrNa,
     ICAO_SENTENCE: icaoSentence,
     CITY: escapeHtml(airport.city),
@@ -186,8 +221,8 @@ function generateAirportPage(airport) {
     LON: airport.lon.toFixed(6),
     ALTITUDE: airport.altitude,
     ALTITUDE_M: altM,
-    TZ_NAME: escapeHtml(tzName),
-    TZ_OFFSET: tzOffset,
+    TZ_NAME: airport.tz_name || 'N/A',
+    TZ_OFFSET: airport.tz_offset ? formatTzOffset(airport.tz_offset) : 'N/A',
     DST_DESC: dstDescription(airport.dst),
     NEARBY_CARDS: renderNearbyCards(airport.nearby),
     NEARBY_LIST_PROSE: nearbyProse,
@@ -203,10 +238,10 @@ function generateCountryPage(slug, airports) {
   const sorted = [...airports].sort((a, b) => a.name.localeCompare(b.name));
 
   const tableRows = sorted.map((a, i) => {
-    const bg = i > 0 && i % 11 === 10
-      ? `<tr><td colspan="4" style="padding:0;"><div class="ad-slot" style="margin:0.5rem 0;"><!-- ADSENSE_MID_TABLE --></div></td></tr>`
+    const mid = i === 10
+      ? `<tr><td colspan="4" style="padding:0.5rem 0;"><div class="ad-slot" style="margin:0;"><!-- ADSENSE_MID_TABLE --></div></td></tr>`
       : '';
-    return `${bg}<tr>
+    return `${mid}<tr>
       <td><a href="/airports/${a.slug}">${escapeHtml(a.name)}</a></td>
       <td class="iata-code">${a.iata}</td>
       <td class="icao-code">${a.icao || '—'}</td>
@@ -276,7 +311,6 @@ function generateConverterPage(type, airports) {
   const placeholder = isIataToIcao
     ? 'Enter IATA code (e.g. JFK)...'
     : 'Enter ICAO code (e.g. KJFK)...';
-  const searchMode = isIataToIcao ? 'iata' : 'icao';
 
   const withIcao = airports.filter(a => a.icao);
   const sorted = [...withIcao].sort((a, b) => a.iata.localeCompare(b.iata)).slice(0, 50);
@@ -293,7 +327,7 @@ function generateConverterPage(type, airports) {
     PAGE_DESC: desc,
     PAGE_SLUG: type,
     SEARCH_PLACEHOLDER: placeholder,
-    SEARCH_MODE: searchMode,
+    SEARCH_MODE: isIataToIcao ? 'iata' : 'icao',
     TABLE_ROWS: tableRows,
   });
 
@@ -389,14 +423,14 @@ Sitemap: ${BASE_URL}/sitemap.xml
 // ---- _redirects ----
 function generateRedirects() {
   fs.writeFileSync(path.join(DIST, '_redirects'),
-`# 404 fallback
-/* /404.html 404
+`/* /404.html 404
 `);
 }
 
 // ---- _headers ----
 function generateHeaders() {
-  const content = `/*
+  fs.writeFileSync('./_headers',
+`/*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
@@ -408,8 +442,7 @@ function generateHeaders() {
 /search-index.json
   Cache-Control: public, max-age=604800
   Access-Control-Allow-Origin: *
-`;
-  fs.writeFileSync('./_headers', content);
+`);
 }
 
 // ---- 404 page ----
@@ -422,7 +455,7 @@ function generate404() {
   <title>404 — Page Not Found · IATA Codes</title>
   <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@400;700&display=swap" rel="stylesheet">
   <style>
-    :root { --navy:#0a0e1a;--cyan:#06b6d4;--text:#e2e8f0;--text-dim:#94a3b8;--border:#1e2d47;--mono:'Space Mono',monospace;--sans:'DM Sans',sans-serif; }
+    :root{--navy:#0a0e1a;--cyan:#06b6d4;--text:#e2e8f0;--text-dim:#94a3b8;--mono:'Space Mono',monospace;--sans:'DM Sans',sans-serif;}
     *{box-sizing:border-box;margin:0;padding:0}
     body{background:var(--navy);color:var(--text);font-family:var(--sans);min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2rem;}
     .code{font-family:var(--mono);font-size:5rem;font-weight:700;color:var(--cyan);line-height:1;}
@@ -444,28 +477,29 @@ function generate404() {
 
 // ---- Copy statics ----
 function copyStatics() {
-  const src = './static/widget.js';
-  const dst = path.join(DIST, 'widget.js');
-  if (fs.existsSync(src)) fs.copyFileSync(src, dst);
+  if (fs.existsSync('./static/widget.js'))
+    fs.copyFileSync('./static/widget.js', path.join(DIST, 'widget.js'));
 }
 
 // ---- Main ----
 async function main() {
   console.time('build');
 
-  await fetchData();
-  const airports = loadAirports();
+  await fetchFile(AIRPORTS_URL, AIRPORTS_PATH);
+  await fetchFile(COUNTRIES_URL, COUNTRIES_PATH);
+
+  const countryMap = loadCountries();
+  console.log(`Loaded ${Object.keys(countryMap).length} country names`);
+
+  const airports = loadAirports(countryMap);
   console.log(`Loaded ${airports.length} valid airports`);
 
   const airportMap = deduplicateByIATA(airports);
   const airportList = Object.values(airportMap);
   console.log(`After dedup: ${airportList.length} airports`);
 
-  // Precompute nearby
   console.log('Computing nearby airports...');
-  airportList.forEach(a => {
-    a.nearby = getNearby(a, airportList, 5);
-  });
+  airportList.forEach(a => { a.nearby = getNearby(a, airportList, 5); });
 
   const byCountry = groupBy(airportList, 'countrySlug');
   const byCity = groupBy(airportList, 'citySlug');
@@ -477,26 +511,18 @@ async function main() {
     fs.mkdirSync(path.join(DIST, d), { recursive: true })
   );
 
-  // Generate airport pages
   console.log('Generating airport pages...');
   let count = 0;
   for (const airport of airportList) {
     generateAirportPage(airport);
-    count++;
-    if (count % 1000 === 0) console.log(`  ${count}/${airportList.length}`);
+    if (++count % 1000 === 0) console.log(`  ${count}/${airportList.length}`);
   }
 
-  // Generate country pages
   console.log('Generating country pages...');
-  for (const [slug, aps] of Object.entries(byCountry)) {
-    generateCountryPage(slug, aps);
-  }
+  for (const [slug, aps] of Object.entries(byCountry)) generateCountryPage(slug, aps);
 
-  // Generate city pages
   console.log('Generating city pages...');
-  for (const [slug, aps] of Object.entries(byCity)) {
-    generateCityPage(slug, aps);
-  }
+  for (const [slug, aps] of Object.entries(byCity)) generateCityPage(slug, aps);
 
   generateConverterPage('iata-to-icao', airportList);
   generateConverterPage('icao-to-iata', airportList);
@@ -511,10 +537,9 @@ async function main() {
 
   console.timeEnd('build');
   console.log(`\n✓ ${airportList.length} airport pages`);
-  console.log(`✓ ${Object.keys(byCountry).length} country pages`);
-  console.log(`✓ ${Object.keys(byCity).length} city pages`);
+  console.log(`✓ ${Object.keys(byCountry).length} countries`);
+  console.log(`✓ ${Object.keys(byCity).length} cities`);
 
-  // File count
   const countFiles = (dir) => {
     let n = 0;
     for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
